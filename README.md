@@ -1,10 +1,11 @@
 # Jira API Queries
 
 ## Requirements
-pip install requests
+`pip install requests`
 
 ## API Token
 Generate a token here: https://id.atlassian.com/manage/api-tokens
+
 Convert to base64 and add to the file jira_api_token.py
 
 ## References
