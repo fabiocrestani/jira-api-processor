@@ -1,0 +1,1 @@
+jira_api_token = 'add_your_token_here'
