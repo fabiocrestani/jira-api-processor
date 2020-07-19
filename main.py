@@ -37,14 +37,13 @@ def main():
 		print('Eror: Invalid argument.')
 		usage()
 		sys.exit()
-
 	task_id = sys.argv[1]
 	comment = sys.argv[2]
-	
 	if len(sys.argv) == 4:
 		if sys.argv[3] == "--force-upload":
 			is_file_ready_to_upload = True
-			
+
+
 	# Open buffer file
 	number_of_entries_in_file = 0
 	try:
@@ -69,7 +68,6 @@ def main():
 		json.dump(json_data, file)
 	
 	
-	
 	## Send whole file to server when ready
 	if is_file_ready_to_upload == False:
 		print("Waiting to upload file")
@@ -79,36 +77,36 @@ def main():
 	# Query tasks
 	query = {'jql' : 'project = \'AP\' and id = \'' + task_id + '\''}
 	json_result, status_code = jiraApiGet(server, "/rest/api/3/search", query)
-	
 	if (status_code != 200):
 		print("Error: Task not found")
+		return 1
+	
+	# Prepare comment body
+	print("Preparing to upload comments")
+	comment_body = ""
+	try:
+		with open(task_id + '.txt') as json_file:
+			json_data = json.load(json_file)
+			for c in json_data['comments']:
+				number_of_entries_in_file = number_of_entries_in_file + 1
+				comment_body = comment_body + "\n" + c['body']
+	except:
+		print("Error opening file")
+		return 1
+
+
+	# Send POST request with comment body
+	print("Adding comment to task (" + str(json_result['total']) + "): ", end="")
+	for issue in json_result['issues']:
+		print("[" + issue['key'] + "] " + issue['fields']['summary'])
+						
+	if (jiraApiAddComment(server, task_id, comment_body) == False):
+		print("Error adding comments to task")
+		return 1
 	else:
-		print("Preparing to upload comments")
-		
-		# Prepare comment body
-		comment_body = ""
-		try:
-			with open(task_id + '.txt') as json_file:
-				json_data = json.load(json_file)
-				for c in json_data['comments']:
-					number_of_entries_in_file = number_of_entries_in_file + 1
-					comment_body = comment_body + "\n" + c['body']
-		except:
-			print("Error opening file")
-			return 1
-	
-	
-		#print(json_result)
-		print("Adding comment to task (" + str(json_result['total']) + "): ", end="")
-		for issue in json_result['issues']:
-			print("[" + issue['key'] + "] " + issue['fields']['summary'])
-							
-		if (jiraApiAddComment(server, task_id, comment_body) == False):
-			print("Error adding comment to task")
-			return 1
-		else:
-			print("Comment added")
-			return 0
+		print("Comments added")
+		os.remove(task_id + '.txt')
+		return 0
 	
 	
 if __name__ == "__main__":
