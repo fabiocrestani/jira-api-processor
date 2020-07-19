@@ -7,12 +7,12 @@ from collections import namedtuple
 from jira_api_token import *
 import os
 import sys
+from datetime import datetime
 
 def jiraApiGet(server, service, params):
 	headers = {'Authorization' : 'Basic ' + jira_api_token}
-	r = requests.get(server + service, headers=headers, params=params,
-					 verify=True)
-	return json.loads(r.text)
+	r = requests.get(server + service, headers=headers, params=params, verify=True)
+	return [json.loads(r.text), r.status_code]
 	
 def jiraApiPost(server, service, data):
 	headers = {'Authorization' : 'Basic ' + jira_api_token, 'Content-Type' : 'application/json'}
@@ -26,34 +26,13 @@ def jiraApiAddComment(server, task_id, comment):
 	return (ret == 201)
 	
 def usage():
-	print("	main.py <Jira Task ID> <Comment to be added>")
+	print("	main.py <Jira Task ID> <Comment to be added> [--force-upload]")
 
 def main():
 	server = "https://sandbox-fc.atlassian.net"
+	is_file_ready_to_upload = False
 
-	# Query one given issue
-	#result = jiraApiQuery(server, "/rest/api/3/issue/TP-1")
-	#print(json.dumps(result, indent=1))
-	
-	# Query list of all issues in Project AP
-	#query = {'jql' : 'project = AP'}
-	#result = jiraApiQuery(server, "/rest/api/3/search", query)
-	#print(json.dumps(result, indent=1))
-	
-	# Query list of all issues in Sprint 1
-	#query = {'jql' : 'project = \'AP\' and Sprint = \'Sprint 1\''}
-	#json_result = jiraApiQuery(server, "/rest/api/3/search", query)
-	#print(json.dumps(json_result, indent=1))
-	
-	#print("")
-	#print("Result of query " + str(query))
-	#print("Number of issues: " + str(json_result['total']))
-	#print("")
-	#for issue in json_result['issues']:
-	#	print("[" + issue['key'] + "] " + issue['fields']['summary'] +
-	#		" -> " + issue['fields']['status']['name'])
-	
-	# Add a comment to a task
+	# Parse arguments
 	if len(sys.argv) < 3:
 		print('Eror: Invalid argument.')
 		usage()
@@ -62,19 +41,74 @@ def main():
 	task_id = sys.argv[1]
 	comment = sys.argv[2]
 	
+	if len(sys.argv) == 4:
+		if sys.argv[3] == "--force-upload":
+			is_file_ready_to_upload = True
+			
+	# Open buffer file
+	number_of_entries_in_file = 0
+	try:
+		with open(task_id + '.txt') as json_file:
+			json_data = json.load(json_file)
+			for c in json_data['comments']:
+				number_of_entries_in_file = number_of_entries_in_file + 1
+	except:
+		print("Error opening file. Will create new file " + task_id + ".txt")
+		json_data = json.loads('{"comments": []}')
+
+
+	# Add comment to buffer file
+	now = datetime.now()
+	timestamp = now.strftime("%d.%m.%Y %H:%M:%S")
+	comment_obj = {'body' : "[" + timestamp + "] " + comment}
+	json_data['comments'].append(comment_obj)
+	number_of_entries_in_file = number_of_entries_in_file + 1
+	print("Comment added to buffer file")
+	print(str(number_of_entries_in_file) + " comments pending upload")
+	with open(task_id + '.txt', "w") as file:
+		json.dump(json_data, file)
+	
+	
+	
+	## Send whole file to server when ready
+	if is_file_ready_to_upload == False:
+		print("Waiting to upload file")
+		return 0
+	
+	
 	# Query tasks
 	query = {'jql' : 'project = \'AP\' and id = \'' + task_id + '\''}
-	json_result = jiraApiGet(server, "/rest/api/3/search", query)
+	json_result, status_code = jiraApiGet(server, "/rest/api/3/search", query)
 	
-	print("")
-	print("Adding comment to task (" + str(json_result['total']) + "): ", end="")
-	for issue in json_result['issues']:
-		print("[" + issue['key'] + "] " + issue['fields']['summary'])
-						
-	if (jiraApiAddComment(server, task_id, comment) == False):
-		print("Error adding comment to task")
+	if (status_code != 200):
+		print("Error: Task not found")
 	else:
-		print("Comment added")
+		print("Preparing to upload comments")
+		
+		# Prepare comment body
+		comment_body = ""
+		try:
+			with open(task_id + '.txt') as json_file:
+				json_data = json.load(json_file)
+				for c in json_data['comments']:
+					number_of_entries_in_file = number_of_entries_in_file + 1
+					comment_body = comment_body + "\n" + c['body']
+		except:
+			print("Error opening file")
+			return 1
+	
+	
+		#print(json_result)
+		print("Adding comment to task (" + str(json_result['total']) + "): ", end="")
+		for issue in json_result['issues']:
+			print("[" + issue['key'] + "] " + issue['fields']['summary'])
+							
+		if (jiraApiAddComment(server, task_id, comment_body) == False):
+			print("Error adding comment to task")
+			return 1
+		else:
+			print("Comment added")
+			return 0
 	
 	
 if __name__ == "__main__":
