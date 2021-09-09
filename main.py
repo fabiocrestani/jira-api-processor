@@ -2,111 +2,125 @@
 # Adds a comment to a task
 # Author: Fabio Crestani
 
-import requests, json
-from collections import namedtuple
+import logging
 from jira_api_token import *
-import os
-import sys
-from datetime import datetime
+from JiraInterface import Jira
 
-def jiraApiGet(server, service, params):
-	headers = {'Authorization' : 'Basic ' + jira_api_token}
-	r = requests.get(server + service, headers=headers, params=params, verify=True)
-	return [json.loads(r.text), r.status_code]
-	
-def jiraApiPost(server, service, data):
-	headers = {'Authorization' : 'Basic ' + jira_api_token, 'Content-Type' : 'application/json'}
-	r = requests.post(server + service, headers=headers,
-					 verify=True, data=json.dumps(data))
-	return r.status_code
-	
-def jiraApiAddComment(server, task_id, comment):
-	comment_obj = {"body": comment}
-	ret = jiraApiPost(server, "/rest/api/2/issue/" + task_id + "/comment", comment_obj)
-	return (ret == 201)
-	
-def usage():
-	print("	main.py <Jira Task ID> <Comment to be added> [--force-upload]")
+from pprint import pprint
+
+class User():
+	def __init__(self, name, email, link):
+		self.name = name
+		self.email = email
+		self.link = link
+
+class Priority():
+	def __init__(self, id, name):
+		self.id = id
+		self.name = name
+
+class Status():
+	def __init__(self, id, name, description):
+		self.id = id
+		self.name = name
+		self.description = description
+
+class Task():
+	def __init__(self, key, link, creator, assignee, created, priority,
+			progress, updated, summary, description, duedate, status):
+		self.key = key
+		self.link = link
+		self.creator = creator
+		self.assignee = assignee
+		self.created = created	
+		self.priority = priority
+		self.progress = progress
+		self.updated = updated
+		self.summary = summary
+		self.description = description
+		self.duedate = duedate
+		self.status = status
 
 def main():
-	server = "https://sandbox-fc.atlassian.net"
-	is_file_ready_to_upload = False
+	logging.basicConfig(level=logging.DEBUG)
+	logging.info('Starting')
 
-	# Parse arguments
-	if len(sys.argv) < 3:
-		print('Eror: Invalid argument.')
-		usage()
-		sys.exit()
-	task_id = sys.argv[1]
-	comment = sys.argv[2]
-	if len(sys.argv) == 4:
-		if sys.argv[3] == "--force-upload":
-			is_file_ready_to_upload = True
+	server = "https://crestani.atlassian.net"
+	project = "fc"
+	jira = Jira(server, project)
 
+	local_tasks = [
+		Task("FC-1", "", User("", "", ""), User("", "", ""),
+			Priority("", ""), "", "", "", "", "", "",
+			Status("", "", "")),
+		Task("FC-2", "", User("", "", ""), User("", "", ""),
+			Priority("", ""), "", "", "", "", "", "",
+			Status("", "", ""))
+	]
 
-	# Open buffer file
-	number_of_entries_in_file = 0
-	try:
-		with open(task_id + '.txt') as json_file:
-			json_data = json.load(json_file)
-			for c in json_data['comments']:
-				number_of_entries_in_file = number_of_entries_in_file + 1
-	except:
-		print("Error opening file. Will create new file " + task_id + ".txt")
-		json_data = json.loads('{"comments": []}')
-
-
-	# Add comment to buffer file
-	now = datetime.now()
-	timestamp = now.strftime("%d.%m.%Y %H:%M:%S")
-	comment_obj = {'body' : "[" + timestamp + "] " + comment}
-	json_data['comments'].append(comment_obj)
-	number_of_entries_in_file = number_of_entries_in_file + 1
-	print("Comment added to buffer file")
-	print(str(number_of_entries_in_file) + " comments pending upload")
-	with open(task_id + '.txt', "w") as file:
-		json.dump(json_data, file)
+	# "pull" tasks: Update local_tasks with remote data
+	for task in local_tasks:
+		print(task.__dict__)
 	
-	
-	## Send whole file to server when ready
-	if is_file_ready_to_upload == False:
-		print("Waiting to upload file")
-		return 0
-	
-	
-	# Query tasks
-	query = {'jql' : 'project = \'AP\' and id = \'' + task_id + '\''}
-	json_result, status_code = jiraApiGet(server, "/rest/api/3/search", query)
-	if (status_code != 200):
-		print("Error: Task not found")
-		return 1
-	
-	# Prepare comment body
-	print("Preparing to upload comments")
-	comment_body = ""
-	try:
-		with open(task_id + '.txt') as json_file:
-			json_data = json.load(json_file)
-			for c in json_data['comments']:
-				number_of_entries_in_file = number_of_entries_in_file + 1
-				comment_body = comment_body + "\n" + c['body']
-	except:
-		print("Error opening file")
-		return 1
+	remote_tasks = jira.pullTasks(local_tasks)
+
+	for task in remote_tasks:
+		issues = task.get("issues")
+		issue0 = issues[0]
+		key = issue0.get("key")
+		link = issue0.get("self")
+		fields = issue0.get("fields")
+		creator = fields.get("creator")
+		creator_name = creator.get("displayName")
+		creator_email = creator.get("emailAddress")
+		creator_link = creator.get("self")
+		assignee = fields.get("assignee")
+		assignee_name = ""
+		assignee_email = ""
+		assignee_link = ""
+		try:
+			assignee_name = assignee.get("displayName")
+			assignee_email = assignee.get("emailAddress")
+			assignee_link = assignee.get("self")
+		except:
+			pass
+
+		created = fields.get("created")
+		priority = fields.get("priority")
+		priority_id = priority.get("id")
+		priority_name = priority.get("name")
+		progress = fields.get("progress")
+		updated = fields.get("updated")
+		summary = fields.get("summary")
+		duedate = fields.get("duedate")
+		description = fields.get("description")
+
+		status = fields.get("status")
+		status_id = status.get("id")
+		status_name = status.get("name")
+		status_description = status.get("description")
+		
+		t = Task(key,
+			link,
+			User(creator_name, creator_email, creator_link),
+			User(assignee_name, assignee_email, assignee_link),
+			created,
+			Priority(priority_id, priority_name),
+			progress,
+			updated,
+			summary,
+			description,
+			duedate,
+			Status(status_id, status_name, status_description))
+
+		print("")
+		print("***** TASK *****")
+		pprint(t.__dict__)
+		print("")
+		
 
 
-	# Send POST request with comment body
-	print("Adding comment to task (" + str(json_result['total']) + "): ", end="")
-	for issue in json_result['issues']:
-		print("[" + issue['key'] + "] " + issue['fields']['summary'])
-						
-	if (jiraApiAddComment(server, task_id, comment_body) == False):
-		print("Error adding comments to task")
-		return 1
-	else:
-		print("Comments added")
-		os.remove(task_id + '.txt')
-		return 0
+
 	
 	
 if __name__ == "__main__":
